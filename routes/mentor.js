@@ -12,15 +12,15 @@ const { authenticate, authorize } = require('../middleware/auth');
  * @swagger
  * tags:
  *   name: Mentor
- *   description: Operations related to mentors
+ *   description: Mentor operations
  */
 
 /**
  * @swagger
  * /mentor/login:
  *   post:
- *     summary: Mentor login.
- *     description: Logs in a mentor user.
+ *     summary: Login as a mentor
+ *     tags: [Mentor]
  *     requestBody:
  *       required: true
  *       content:
@@ -30,16 +30,17 @@ const { authenticate, authorize } = require('../middleware/auth');
  *             properties:
  *               email:
  *                 type: string
- *                 format: email
+ *                 example: mentor@example.com
  *               password:
  *                 type: string
+ *                 example: password123
  *     responses:
  *       200:
- *         description: Mentor logged in successfully. Returns JWT token and role.
+ *         description: Successfully logged in
  *       400:
- *         description: Invalid email or password.
+ *         description: Validation error
  *       401:
- *         description: Invalid credentials.
+ *         description: Invalid credentials
  */
 router.post('/login', [
     check('email').isEmail().withMessage('Invalid email address'),
@@ -49,7 +50,6 @@ router.post('/login', [
     if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
     }
-
     const { email, password } = req.body;
 
     try {
@@ -63,9 +63,10 @@ router.post('/login', [
             return res.status(401).json({ errors: [{ msg: 'Invalid credentials' }] });
         }
 
-        const token = jwt.sign({ userId: mentor._id, role: 'mentor' }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
-        res.json({ token, role: 'mentor', userId: mentor._id });
+        const payload = { userId: mentor._id, role: 'mentor' };
+        const token = jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
 
+        res.json({ token, role: 'mentor', userId: mentor._id });
     } catch (error) {
         next(error);
     }
@@ -75,21 +76,21 @@ router.post('/login', [
  * @swagger
  * /mentor/projects:
  *   get:
- *     summary: Get assigned projects for a mentor.
- *     description: Retrieves a list of projects assigned to the logged-in mentor.
+ *     summary: Get projects assigned to the mentor
+ *     tags: [Mentor]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: A JSON array of projects assigned to the mentor.
+ *         description: List of assigned projects
  *       401:
- *         description: Unauthorized - Mentor authentication required.
- *       500:
- *         description: Server error.
+ *         description: Unauthorized
+ *       404:
+ *         description: Mentor not found
  */
 router.get('/projects', authenticate, authorize(['mentor']), async (req, res, next) => {
     try {
-        const mentor = await Mentor.findById(req.userId).populate('assignedProjects');
+        const mentor = await Mentor.findById(req.user.userId).populate('assignedProjects');
         if (!mentor) {
             return res.status(404).json({ errors: [{ msg: 'Mentor not found.' }] });
         }
@@ -103,25 +104,24 @@ router.get('/projects', authenticate, authorize(['mentor']), async (req, res, ne
  * @swagger
  * /mentor/projects/{projectId}/applications:
  *   get:
- *     summary: Get student applications for a specific project.
- *     description: Retrieves a list of students who have applied for a specific project assigned to the logged-in mentor.
+ *     summary: Get student applications for a specific project
+ *     tags: [Mentor]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: projectId
  *         required: true
  *         schema:
  *           type: string
+ *         description: Project ID
  *     responses:
  *       200:
- *         description: A JSON array of students who applied for the project.
+ *         description: List of students applied
  *       401:
- *         description: Unauthorized - Mentor authentication required.
+ *         description: Unauthorized
  *       404:
- *         description: Project not found.
- *       500:
- *         description: Server error.
+ *         description: Project not found
  */
 router.get('/projects/:projectId/applications', authenticate, authorize(['mentor']), async (req, res, next) => {
     const { projectId } = req.params;
@@ -131,7 +131,7 @@ router.get('/projects/:projectId/applications', authenticate, authorize(['mentor
             return res.status(404).json({ errors: [{ msg: 'Project not found.' }] });
         }
 
-        const mentor = await Mentor.findById(req.userId);
+        const mentor = await Mentor.findById(req.user.userId);
         if (!mentor || !mentor.assignedProjects.includes(projectId)) {
             return res.status(401).json({ errors: [{ msg: 'Unauthorized - You are not the mentor for this project.' }] });
         }
@@ -146,16 +146,17 @@ router.get('/projects/:projectId/applications', authenticate, authorize(['mentor
  * @swagger
  * /mentor/projects/{projectId}/progress:
  *   put:
- *     summary: Update student progress for a project.
- *     description: Allows a mentor to update the progress of students for a specific project they are mentoring.
+ *     summary: Update student progress on a project
+ *     tags: [Mentor]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: projectId
  *         required: true
  *         schema:
  *           type: string
+ *         description: Project ID
  *     requestBody:
  *       required: true
  *       content:
@@ -167,15 +168,16 @@ router.get('/projects/:projectId/applications', authenticate, authorize(['mentor
  *                 type: string
  *               progressUpdate:
  *                 type: string
+ *             required:
+ *               - studentId
+ *               - progressUpdate
  *     responses:
  *       200:
- *         description: Progress updated successfully. Returns the updated project.
+ *         description: Progress updated successfully
  *       401:
- *         description: Unauthorized - Mentor authentication required.
+ *         description: Unauthorized
  *       404:
- *         description: Project or student not found.
- *       500:
- *         description: Server error.
+ *         description: Project or Student not found
  */
 router.put('/projects/:projectId/progress', authenticate, authorize(['mentor']), async (req, res, next) => {
     const { projectId } = req.params;
@@ -187,7 +189,7 @@ router.put('/projects/:projectId/progress', authenticate, authorize(['mentor']),
             return res.status(404).json({ errors: [{ msg: 'Project not found.' }] });
         }
 
-        const mentor = await Mentor.findById(req.userId);
+        const mentor = await Mentor.findById(req.user.userId);
         if (!mentor || !mentor.assignedProjects.includes(projectId)) {
             return res.status(401).json({ errors: [{ msg: 'Unauthorized - You are not the mentor for this project.' }] });
         }
@@ -197,15 +199,13 @@ router.put('/projects/:projectId/progress', authenticate, authorize(['mentor']),
             return res.status(404).json({ errors: [{ msg: 'Student not found or not applied to this project.' }] });
         }
 
-        const submission = {
+        project.submissions.push({
             studentId,
             progressUpdate,
             timestamp: new Date()
-        };
+        });
 
-        project.submissions.push(submission);
         const updatedProject = await project.save();
-
         res.json({ message: 'Progress updated successfully.', project: updatedProject });
     } catch (error) {
         next(error);
@@ -216,23 +216,21 @@ router.put('/projects/:projectId/progress', authenticate, authorize(['mentor']),
  * @swagger
  * /mentor/profile:
  *   get:
- *     summary: Get mentor profile.
- *     description: Retrieves the profile information of the logged-in mentor.
+ *     summary: Get mentor profile
+ *     tags: [Mentor]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Mentor profile information.
+ *         description: Mentor profile data
  *       401:
- *         description: Unauthorized - Mentor authentication required.
+ *         description: Unauthorized
  *       404:
- *         description: Mentor not found.
- *       500:
- *         description: Server error.
+ *         description: Mentor not found
  */
 router.get('/profile', authenticate, authorize(['mentor']), async (req, res, next) => {
     try {
-        const mentor = await Mentor.findById(req.userId);
+        const mentor = await Mentor.findById(req.user.userId);
         if (!mentor) {
             return res.status(404).json({ errors: [{ msg: 'Mentor not found.' }] });
         }
@@ -246,10 +244,10 @@ router.get('/profile', authenticate, authorize(['mentor']), async (req, res, nex
  * @swagger
  * /mentor/profile:
  *   put:
- *     summary: Update mentor profile.
- *     description: Allows the logged-in mentor to update their profile information.
+ *     summary: Update mentor profile
+ *     tags: [Mentor]
  *     security:
- *       - BearerAuth: []
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -259,21 +257,22 @@ router.get('/profile', authenticate, authorize(['mentor']), async (req, res, nex
  *             properties:
  *               name:
  *                 type: string
+ *                 example: New Mentor Name
  *               email:
  *                 type: string
+ *                 example: newmentor@example.com
  *               password:
  *                 type: string
+ *                 example: newpassword123
  *     responses:
  *       200:
- *         description: Profile updated successfully. Returns the updated mentor profile.
+ *         description: Profile updated successfully
  *       400:
- *         description: Invalid email format or password length.
+ *         description: Validation errors
  *       401:
- *         description: Unauthorized - Mentor authentication required.
+ *         description: Unauthorized
  *       404:
- *         description: Mentor not found.
- *       500:
- *         description: Server error.
+ *         description: Mentor not found
  */
 router.put('/profile', authenticate, authorize(['mentor']), [
     check('email').optional().isEmail().withMessage('Invalid email address'),
@@ -294,7 +293,7 @@ router.put('/profile', authenticate, authorize(['mentor']), [
     }
 
     try {
-        const mentor = await Mentor.findByIdAndUpdate(req.userId, updateFields, { new: true, runValidators: true });
+        const mentor = await Mentor.findByIdAndUpdate(req.user.userId, updateFields, { new: true, runValidators: true });
         if (!mentor) {
             return res.status(404).json({ errors: [{ msg: 'Mentor not found.' }] });
         }
